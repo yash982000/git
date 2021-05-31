@@ -10,11 +10,13 @@
 #include "strvec.h"
 #include "run-command.h"
 #include "dir.h"
+#include "entry.h"
 #include "rerere.h"
 #include "revision.h"
 #include "log-tree.h"
 #include "diffcore.h"
 #include "exec-cmd.h"
+#include "entry.h"
 
 #define INCLUDE_ALL_FILES 2
 
@@ -831,7 +833,7 @@ static int show_stash(int argc, const char **argv, const char *prefix)
 		UNTRACKED_NONE,
 		UNTRACKED_INCLUDE,
 		UNTRACKED_ONLY
-	} show_untracked = UNTRACKED_NONE;
+	} show_untracked = show_include_untracked ? UNTRACKED_INCLUDE : UNTRACKED_NONE;
 	struct option options[] = {
 		OPT_SET_INT('u', "include-untracked", &show_untracked,
 			    N_("include untracked files in the stash"),
@@ -874,9 +876,6 @@ static int show_stash(int argc, const char **argv, const char *prefix)
 		if (show_patch)
 			rev.diffopt.output_format |= DIFF_FORMAT_PATCH;
 
-		if (show_include_untracked)
-			show_untracked = UNTRACKED_INCLUDE;
-
 		if (!show_stat && !show_patch) {
 			free_stash_info(&info);
 			return 0;
@@ -900,10 +899,14 @@ static int show_stash(int argc, const char **argv, const char *prefix)
 		diff_tree_oid(&info.b_commit, &info.w_commit, "", &rev.diffopt);
 		break;
 	case UNTRACKED_ONLY:
-		diff_root_tree_oid(&info.u_tree, "", &rev.diffopt);
+		if (info.has_u)
+			diff_root_tree_oid(&info.u_tree, "", &rev.diffopt);
 		break;
 	case UNTRACKED_INCLUDE:
-		diff_include_untracked(&info, &rev.diffopt);
+		if (info.has_u)
+			diff_include_untracked(&info, &rev.diffopt);
+		else
+			diff_tree_oid(&info.b_commit, &info.w_commit, "", &rev.diffopt);
 		break;
 	}
 	log_tree_diff_flush(&rev);
@@ -1410,6 +1413,8 @@ static int do_push_stash(const struct pathspec *ps, const char *stash_msg, int q
 		int i;
 		char *ps_matched = xcalloc(ps->nr, 1);
 
+		/* TODO: audit for interaction with sparse-index. */
+		ensure_full_index(&the_index);
 		for (i = 0; i < active_nr; i++)
 			ce_path_match(&the_index, active_cache[i], ps,
 				      ps_matched);
